@@ -89,6 +89,21 @@ details.rv .meta{margin-left:auto}
 .btn.sm{padding:4px 10px;font-size:12px}
 .fb .why.note{font-size:13px;color:var(--mute)}
 @media (max-width:480px){.navgrid{grid-template-columns:repeat(8,1fr)}.bar{grid-template-columns:96px 1fr 64px}}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:16px;font:500 13px var(--sans);cursor:pointer}
+.chip.on{background:var(--ink);color:var(--ink-fg);border-color:var(--ink)}
+.song{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.stz{border:1px solid var(--line);background:var(--bg);border-radius:4px;padding:10px 14px}
+.stz .sn{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
+.ln{font:700 17px/1.9 var(--serif);letter-spacing:.02em}
+.nl{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.nl.tl{list-style:none;padding-left:0}
+.nl.tl b{display:inline-block;min-width:4.5em;color:var(--ink)}
+table.nt{width:100%;border-collapse:collapse;font-size:14px}
+table.nt th,table.nt td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+table.nt thead th{background:var(--bg);color:var(--mute);font-weight:500}
+table.nt tbody th{white-space:nowrap;color:var(--ink)}
 </style>
 
 <div class="wrap">
@@ -100,12 +115,14 @@ details.rv .meta{margin-left:auto}
     <button data-t="quiz" role="tab">시험·연습</button>
     <button data-t="wrong" role="tab">오답노트<span class="badge" id="wcount" hidden></span></button>
     <button data-t="weak" role="tab">약점 분석</button>
+    <button data-t="note" role="tab">암기 노트</button>
     <button data-t="doc" role="tab">내 문서</button>
   </nav>
   <main id="view"></main>
 </div>
 
 <script src="bank.js"></script>
+<script src="notes.js"></script>
 <script>
 /* ---------- 내장 지식 베이스 ----------
    형식: [시대, 용어, 설명(핵심어는 [[ ]]), 연도(선택)] */
@@ -662,7 +679,7 @@ const MATS=[
 }
 
 /* ---------- 저장소 ---------- */
-const S={stats:{},wrong:{},wlog:[],docs:[],hist:[],kwUse:{},sig:{},recent:[],cur:null};
+const S={stats:{},wrong:{},wlog:[],docs:[],hist:[],kwUse:{},sig:{},recent:[],cur:null,noteDone:{}};
 const K='hk_quiz_v1';
 function load(){try{Object.assign(S,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}}
 function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
@@ -1146,7 +1163,7 @@ function topBar(){
 }
 function go(t){tab=t;render()}
 document.getElementById('tabs').onclick=e=>{const b=e.target.closest('button');if(b){if(run&&run.done)run=null;go(b.dataset.t)}};
-function render(){clearInterval(TM);topBar();({quiz:vQuiz,wrong:vWrong,weak:vWeak,doc:vDoc})[tab]();window.scrollTo&&scrollTo(0,0)}
+function render(){clearInterval(TM);topBar();({quiz:vQuiz,wrong:vWrong,weak:vWeak,note:vNote,doc:vDoc})[tab]();window.scrollTo&&scrollTo(0,0)}
 
 function barRow(label,ratio,txt){
   const col=ratio>=.8?'var(--ok)':ratio>=.6?'var(--warn)':'var(--ng)';
@@ -1519,6 +1536,62 @@ function vWeak(){
     try{await s(`한국사능력검정시험 '${e}' 범위의 요약 노트를 한국어로 작성하세요. 아래 자료를 기반으로 시험에 자주 나오는 구분 포인트, 헷갈리기 쉬운 쌍, 연상 암기법을 정리하고, 마지막에 확인 문제 3개(정답 포함)를 내세요. 마크다운 기호 없이 일반 텍스트로 쓰세요.\n\n[자료]\n${fs}\n\n[학생이 틀린 문제]\n${wr.join('\n')||'없음'}`,{onText:({text})=>{document.getElementById('aisumt').textContent=text}})}
     catch(err){document.getElementById('aisumt').textContent='불러오지 못했습니다.'}
   };
+}
+
+/* ---------- 암기 노트: 시대별 노래 · 핵심 정리 · 비교표 · 암기 요령 ---------- */
+let NE=null,NMASK=false;
+function vNote(){
+  const eras=NOTES.eras,cur=eras.find(e=>e.era===NE)||eras[0];NE=cur.era;
+  const done=S.noteDone||(S.noteDone={}),doneN=eras.filter(e=>done[e.era]).length;
+  const mask=l=>{const w=l.split(' ');return w[0]+' '+w.slice(1).map(x=>'○'.repeat([...x].length)).join(' ')};
+  const evs=EVENTS.filter(e=>e[0]===cur.era).sort((a,b)=>a[1]-b[1]);
+  const table=([title,rows])=>`<div class="card"><h3>${esc(title)}</h3><table class="nt"><thead><tr>${rows[0].map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.slice(1).map(r=>`<tr>${r.map((c,i)=>i?`<td>${esc(c)}</td>`:`<th scope="row">${esc(c)}</th>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  $v.innerHTML=`
+  <div class="panel">
+    <h2>암기 노트 <span class="pill">노래 외움 ${doneN}/${eras.length}</span></h2>
+    <p class="note">시대를 고르면 그 시대의 노래 · 핵심 정리 · 헷갈리는 쌍 비교 · 암기 요령 · 연표가 한 화면에 나옵니다.</p>
+    <div class="chips">${eras.map(e=>`<button class="chip ${e.era===cur.era?'on':''}" data-era="${esc(e.era)}">${done[e.era]?'✓ ':''}${esc(e.era)}</button>`).join('')}</div>
+  </div>
+  <div class="panel">
+    <h2>${esc(cur.song.title)}</h2>
+    <p class="note">멜로디: ${esc(NOTES.melody)} — 한 줄은 7글자, 한 연은 6줄입니다. 박자에 맞춰 또박또박 읽다가 멜로디를 얹어 보세요.</p>
+    <div class="song">${cur.song.stanzas.map((st,i)=>`<div class="stz"><span class="sn">${i+1}절</span>${st.map(l=>`<div class="ln">${esc(NMASK?mask(l):l)}</div>`).join('')}</div>`).join('')}</div>
+    <div class="row">
+      <button class="btn ${NMASK?'':'ghost'}" id="mask">${NMASK?'가사 다시 보기':'가사 가리기 (첫 단어만 보이게)'}</button>
+      <button class="btn ghost" id="done">${done[cur.era]?'외움 표시 해제':'이 시대 노래 외웠어요'}</button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>핵심 정리</h2>
+    <ul class="nl">${cur.core.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>
+  </div>
+  <div class="panel">
+    <h2>헷갈리는 쌍 비교</h2>
+    ${cur.pairs.map(table).join('')}
+  </div>
+  <div class="panel">
+    <h2>암기 요령</h2>
+    <ul class="nl">${cur.tips.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>
+  </div>
+  <div class="panel">
+    <h2>${esc(cur.era)} 연표</h2>
+    ${evs.length?`<ul class="nl tl">${evs.map(e=>`<li><b>${yr(e[1])}</b> ${esc(e[2])}</li>`).join('')}</ul>`:'<p class="note">이 시대는 연표 사건이 아직 없습니다.</p>'}
+    <div class="row"><button class="btn" id="nq">이 시대 한능검형 문제 풀기</button><button class="btn ghost" id="nw">오답노트 보기</button></div>
+  </div>
+  <div class="panel">
+    <h2>노래로 외우는 법</h2>
+    <ul class="nl">${NOTES.songTips.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>
+  </div>
+  <div class="panel">
+    <h2>암기하기 쉬운 방법 7가지</h2>
+    ${NOTES.methods.map(([t,d])=>`<div class="card"><div class="term">${esc(t)}</div><div>${esc(d)}</div></div>`).join('')}
+  </div>`;
+  const $=id=>document.getElementById(id);
+  $v.querySelectorAll('[data-era]').forEach(b=>b.onclick=()=>{NE=b.dataset.era;NMASK=false;vNote();window.scrollTo&&scrollTo(0,0)});
+  $('mask').onclick=()=>{NMASK=!NMASK;vNote()};
+  $('done').onclick=()=>{S.noteDone[cur.era]=!S.noteDone[cur.era];save();vNote()};
+  $('nq').onclick=()=>startPractice({scope:'era:'+cur.era,kind:'mix',n:10});
+  $('nw').onclick=()=>{WF.era=cur.era;WF.st='open';go('wrong')};
 }
 
 /* ---------- 내 문서 ---------- */
